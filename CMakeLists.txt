@@ -9,8 +9,16 @@ set(CMAKE_CFLAGS -Wall -O3)
 
 add_executable(seq
   seq.c
-)
+  )
 
 target_link_libraries(seq
   m
-)
+  )
+
+add_executable(para
+  seqParallel.c
+  )
+
+target_link_libraries(para
+  m
+  )
