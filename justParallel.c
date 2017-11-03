@@ -4,25 +4,32 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include <mpi.h>
+#include "utils.h"
 #define MIN(a, b) ((a)<(b) ? (a) : (b))
-
+/* 
+   CODES ERREURS 
+   0 -> no error
+   1 -> missing args 
+   2 -> cannot allocate mem
+   3 -> CFL too big
+*/
 /* Définition et fonctions sur les grilles étendues 
    struct, border, indice, malloc, free, at(), swap. */
 typedef struct ext_grid_t {
     double *grid_read,
-	*grid_write,
-	*left_write,
-        *left_read,
-	*top_write,
+	*left_read,
         *top_read,
-	*bottom_write,
         *bottom_read,
-	*right_write,
         *right_read,
         *leftR,
         *topR,
         *bottomR,
-        *rightR;
+        *rightR,
+	*grid_write,
+	*left_write,
+	*top_write,
+	*bottom_write,
+	*right_write;
     unsigned m_Nx,
 	m_Ny;
 } ext_grid_t;
@@ -92,13 +99,9 @@ void free_ext_grid(ext_grid_t* ext_grid) {
     /*if (ext_grid->rightR)       free(ext_grid->rightR);*/
 }
 
-/* lire facilement une grille étendue -> le bug est probablement la dedans... 
-   Il faut vérifier la dernière ligne tout particulièrement. Même si ça pas 
-   l'air d'être celle la qui plante. Le printf qui pollue la sortie est 
-   juste en dessous la vvvvv */
+/* lire facilement une grille étendue */
 double* grid_read_at(const ext_grid_t* ext_grid, unsigned nx, unsigned ny) {
-    //printf("%d %d\n", nx, ny); fflush(stdout);
-    
+
     // On a envoyé nx-1
     if (nx==-1) return &(ext_grid->topR[ny]);
     
@@ -120,10 +123,10 @@ double* grid_read_at(const ext_grid_t* ext_grid, unsigned nx, unsigned ny) {
     return &(ext_grid->grid_read[(nx-1)*(ext_grid->m_Ny-2)+(ny-1)]);
 }
 
-/* écrire facilement dans une grille étendue -> le bug est peut être aussi ici... */
+/* écrire facilement dans une grille étendue */
 void grid_write_at(const ext_grid_t* ext_grid, unsigned nx, unsigned ny, double val) {
     if (nx>0 && nx<ext_grid->m_Nx-1 && ny>0 && ny<ext_grid->m_Ny-1)
-      ext_grid->grid_write[(nx-1)*(ext_grid->m_Ny-2)+(ny-1)] = val;
+	ext_grid->grid_write[(nx-1)*(ext_grid->m_Ny-2)+(ny-1)] = val;
     else {
 	if (nx==0) ext_grid->top_write[ny] = val;
 	else ext_grid->bottom_write[ny] = val; // nx forcément égal à m_Nx-1
@@ -132,15 +135,14 @@ void grid_write_at(const ext_grid_t* ext_grid, unsigned nx, unsigned ny, double 
     }
 }
 
-/* échanger deux pointeurs, c'est assez simple et ça à l'air de marcher... 
-   Cf code commenté après la fonction main pour vérifier */
+/* échanger deux pointeurs de double */
 void swap_dpts(double** a, double** b) {
     double* tmp=*a;
     *a = *b;
     *b = tmp;
 }
 
-/* échanger les parties read et write d'une grille étendue, ça à l'air de marcher aussi */
+/* échanger les parties read et write d'une grille étendue */
 void swap_read_write(ext_grid_t* ext_grid) {
     swap_dpts(&(ext_grid->grid_read),   &(ext_grid->grid_write));
     swap_dpts(&(ext_grid->top_read),    &(ext_grid->top_write));
@@ -163,24 +165,19 @@ double exact_sol(double t, double x, double y,
 	exp( -pow(x_t, 2)/(pow(sigma, 2) + 4*t*kappa) );
 }
 
-/* remplie notre grille locale à partir de ses coordonnées globales -> semble OK */
+/* remplie notre grille locale à partir de ses coordonnées globales */
 void exact_sol_grid(ext_grid_t* m_grid,
 		    unsigned offset_nx, unsigned offset_ny, double dx, double dy,
 		    double t, double T_max, double kappa, double sigma) {
     unsigned nx, ny;
-    for (ny=0; ny<m_grid->m_Ny; ++ny) 
-	for (nx=0; nx<m_grid->m_Nx; ++nx) 
+    for (nx=0; nx<m_grid->m_Nx; ++nx)
+	for (ny=0; ny<m_grid->m_Ny; ++ny) 
 	    *grid_read_at(m_grid, nx, ny) = exact_sol(t, (offset_nx+nx)*dx,
 						      (offset_ny+ny)*dy, T_max,
 						      kappa, sigma);
 }
 
-/* résolution sur un point -> d'après mes test il arrive pas à lire les 
-   coord (nx, ny) = (m_Nx-1, -1) càd left pour le thread rank=1. Cependant
-   si tu le mets tout seul avant genre printf grid_read_at(&m_grid, 369, -1) 
-   il marche sans problème... C'est la que je me suis arrêté... Et il 
-   n'y a pas de problème en rank=0 c'est parce que border=LEFT donc ça passe 
-   pas par la fonction grid_read_at */  
+/* résolution sur un point */  
 void one_point(ext_grid_t* m_grid, unsigned border,
 	       unsigned nx, unsigned ny,
 	       double dt, double dx, double dy, double kappa) {
@@ -200,19 +197,14 @@ void one_point(ext_grid_t* m_grid, unsigned border,
 	m_grid->right_write[nx] = m_grid->right_read[nx];
 	return;
     }
-    double top=0, bottom=0, left=0, right=0, self=0;
 
-    //printf("t"); fflush(stdout);
+    double top=0, bottom=0, left=0, right=0, self=0;
     top    = *grid_read_at(m_grid, nx-1, ny);
-    //printf("b"); fflush(stdout);
     bottom = *grid_read_at(m_grid, nx+1, ny);
-    //printf("l"); fflush(stdout);
     left   = *grid_read_at(m_grid, nx, ny-1);
-    //printf("r"); fflush(stdout);
     right  = *grid_read_at(m_grid, nx, ny+1);
-    //printf("s"); fflush(stdout);
     self   = *grid_read_at(m_grid, nx, ny);
-    //printf("w\n"); fflush(stdout);
+    
     grid_write_at(m_grid, nx, ny, self + dt * kappa *
     		  ( (left+right-2*self)/pow(dx, 2) + (top+bottom-2*self)/pow(dy, 2) ));
     return;
@@ -222,14 +214,11 @@ void one_point(ext_grid_t* m_grid, unsigned border,
 void one_step(ext_grid_t* m_grid, unsigned border,
 	      double dt, double dx, double dy, double kappa) {
     unsigned nx, ny;
-    for (nx=0; nx<m_grid->m_Nx; ++nx) {
-	for (ny=0; ny<m_grid->m_Ny; ++ny) {
-	    //printf("%d %d %d\n", nx, ny, border); fflush(stdout);
+    for (nx=0; nx<m_grid->m_Nx; ++nx) 
+	for (ny=0; ny<m_grid->m_Ny; ++ny) 
 	    one_point(m_grid, border, 
 		      nx, ny, dt, dx, dy,
 		      kappa); 
-	}
-    }
 }
 
 /* diff L2 entre deux fonctions de R2 */
@@ -240,7 +229,6 @@ double L2_diff(const ext_grid_t* ext_grid_a, const ext_grid_t* ext_grid_b) {
 	return -1;
     for (ny=0; ny<ext_grid_a->m_Ny; ++ny) 
 	for (nx=0; nx<ext_grid_a->m_Nx; ++nx) {
-	//    if ( *grid_read_at(ext_grid_a, nx, ny)>1) printf("%d %d\n", nx, ny, *grid_read_at(ext_grid_a, nx, ny), *grid_read_at(ext_grid_b, nx, ny));
 	    diff += pow((*grid_read_at(ext_grid_a, nx, ny)) -
 			(*grid_read_at(ext_grid_b, nx, ny)), 2);
 	}
@@ -323,7 +311,7 @@ int main(int argc, char **argv) {
     if (argc<13) {
 	printf("Missing args (got %d instead of 12) : \n", argc);
         printf("Args : Nx, Ny, nb_steps, t_end, a, b, kappa, CFL, T_max, sigma, plot_every, calc_err\n");
-	return EXIT_FAILURE;
+	return 1;
     }
     /* 
        Initialisation de MPI 
@@ -368,71 +356,80 @@ int main(int argc, char **argv) {
        Decompte des threads morts et création de deux nouveaux MPI_Comm adaptés
     */
     int N_alive_threads = Nx_threads_nb*Ny_threads_nb;
-    int N_temp_alive_threads = ((N_threads > N_alive_threads) ? N_alive_threads+1 : N_alive_threads);
-    unsigned rank_active_temp_thread = (N_temp_alive_threads == 0 ?  0 : N_alive_threads);
-    int * alive_threads = (int*) malloc((N_alive_threads)*sizeof(int));
-    int * temp_alive_threads = (int*) malloc(N_temp_alive_threads*sizeof(int));
-    int athr;
+    int N_aux_alive_threads = ((N_threads > N_alive_threads) ? N_alive_threads+1 : N_alive_threads);
+    unsigned rank_active_aux_thread = (N_aux_alive_threads == 0 ?  0 : N_alive_threads);
+    int *alive_threads = (int*) malloc((N_alive_threads)*sizeof(int)),
+	*aux_alive_threads = (int*) malloc(N_aux_alive_threads*sizeof(int)),
+	athr;
     MPI_Group mpi_group_alive_world,
-              mpi_group_temp_alive_world,
+              mpi_group_aux_alive_world,
               mpi_group_world;
-    MPI_Comm mpi_comm_alive_world, mpi_comm_temp_alive_world;
+    MPI_Comm mpi_comm_alive_world, mpi_comm_aux_alive_world;
     for (athr=0; athr<N_alive_threads; ++athr){
 	alive_threads[athr] = athr;
-        temp_alive_threads[athr] = athr;
+        aux_alive_threads[athr] = athr;
     }
-    if(rank_active_temp_thread != 0) temp_alive_threads[N_temp_alive_threads-1] = N_temp_alive_threads-1;
-    MPI_Comm_group(MPI_COMM_WORLD, &mpi_group_temp_alive_world);
+    if(rank_active_aux_thread != 0) aux_alive_threads[N_aux_alive_threads-1] = N_aux_alive_threads-1;
+    MPI_Comm_group(MPI_COMM_WORLD, &mpi_group_aux_alive_world);
     MPI_Comm_group(MPI_COMM_WORLD, &mpi_group_world);
-    MPI_Group_incl(mpi_group_temp_alive_world, N_temp_alive_threads, temp_alive_threads, &mpi_group_temp_alive_world);
+    MPI_Group_incl(mpi_group_aux_alive_world, N_aux_alive_threads, aux_alive_threads, &mpi_group_aux_alive_world);
     MPI_Group_incl(mpi_group_world, N_alive_threads, alive_threads, &mpi_group_alive_world);
-    MPI_Comm_create(MPI_COMM_WORLD, mpi_group_temp_alive_world, &mpi_comm_temp_alive_world);
+    MPI_Comm_create(MPI_COMM_WORLD, mpi_group_aux_alive_world, &mpi_comm_aux_alive_world);
     MPI_Comm_create(MPI_COMM_WORLD, mpi_group_alive_world, &mpi_comm_alive_world);
 
-    if ((!m_Nx || !m_Ny) && m_rank != rank_active_temp_thread) { //Quitter si rien à faire --> regarder si MPI_Finalize ne gêne pas les autres threads
+    if ((!m_Nx || !m_Ny) && m_rank != rank_active_aux_thread) { //Quitter si rien à faire --> regarder si MPI_Finalize ne gêne pas les autres threads
 	printf("#rank = %d -- Nothing to do\n", m_rank);
 	MPI_Finalize();
-	return EXIT_SUCCESS;
+	return 0;
     }
-    if (m_rank == rank_active_temp_thread)
-	printf("\n#m_Nx = %d \n#m_Ny = %d \n#Nx_threads_nb = %d \n#Ny_threads_nb = %d \n#Temporary thread = %d\n",
-	       m_Nx, m_Ny, Nx_threads_nb, Ny_threads_nb, rank_active_temp_thread);
-
+    if (m_rank == rank_active_aux_thread) 
+	printf("#rank = %d -- Auxiliary thread\n", m_rank);
+    if (!m_rank)
+	printf("\n#m_Nx = %d \n#m_Ny = %d \n#Nx_threads_nb = %d \n#Ny_threads_nb = %d\n",
+	       m_Nx, m_Ny, Nx_threads_nb, Ny_threads_nb);
+    
     /* 
        Initialisation de la grille étendue locale 
     */
-    ext_grid_t m_grid, grid_sol_exact;
-    m_grid.m_Nx = m_Nx; grid_sol_exact.m_Nx = m_Nx;
-    m_grid.m_Ny = m_Ny; grid_sol_exact.m_Ny = m_Ny;
     // Allocation de mémoire pour le centre et les bords de notre grille
-    bool alloc_err = (malloc_ext_grid(&m_grid, true, true) || malloc_ext_grid(&grid_sol_exact, false, false));
+    ext_grid_t m_grid, grid_sol_exact;
+    bool alloc_err = false;
+    if (m_Nx && m_Ny) {
+	m_grid.m_Nx = m_Nx; grid_sol_exact.m_Nx = m_Nx;
+	m_grid.m_Ny = m_Ny; grid_sol_exact.m_Ny = m_Ny;
+	alloc_err = (malloc_ext_grid(&m_grid, true, true) || malloc_ext_grid(&grid_sol_exact, false, false));
+    }
 
-    // Si des threads ne font rien, il vont recevoir les erreurs.
-    if (calc_err && m_rank == rank_active_temp_thread) {
+    // Si des threads ne font rien, il vont recevoir les erreurs L2
+    if (calc_err && m_rank == rank_active_aux_thread) {
         L2_err = (double*) malloc(nb_steps * sizeof (double));
-        times = (double*) malloc(nb_steps * sizeof (double));
+        times  = (double*) malloc(nb_steps * sizeof (double));
         alloc_err |= !times || !L2_err;
     } 
-    if (alloc_err && (m_rank != rank_active_temp_thread || !m_rank)){
-        printf("Cannot allocate memory\n");
+    if (alloc_err){
+        printf("Cannot allocate memory (rank = %d)\n", m_rank);
 	MPI_Finalize();
-        return EXIT_FAILURE;
+        return 2;
     }	
     const double dt = t_end/nb_steps,
 	dx = a/Nx,
 	dy = b/Ny,
 	CFL = kappa*dt/MIN(pow(dx, 2), pow(dy, 2));
     
-    if(m_rank == rank_active_temp_thread) printf("CFL : %f \n", CFL);
+    if(m_rank == rank_active_aux_thread) printf("CFL : %f \n", CFL); 
     
     if (CFL > CFL_max) {
-        if (m_rank == rank_active_temp_thread) printf("CFL too big... Aborting! \n");
-        return EXIT_FAILURE;
+        if (m_rank == rank_active_aux_thread) {
+	    printf("CFL too big, aborting! \n");
+	    fflush(stdout);
+	}
+	MPI_Finalize();
+        return 3;
     } 
     /*
       initialisation des grilles locales (chaque thread initialise sa grille étendue locale)
     */
-    if(m_rank != rank_active_temp_thread || !m_rank){
+    if(m_rank != rank_active_aux_thread || !m_rank){
         exact_sol_grid(&m_grid, offset_nx, offset_ny, dx, dy,
                        0, T_max, kappa, sigma);
         exact_sol_grid(&grid_sol_exact, offset_nx, offset_ny, dx, dy,
@@ -445,7 +442,7 @@ int main(int argc, char **argv) {
     unsigned step;
     for (step=1; step<nb_steps; step++) {
         
-        if(m_rank != rank_active_temp_thread || !m_rank){
+        if(m_rank != rank_active_aux_thread || !m_rank){
             // Envoi à droite
             if(!(m_border & RIGHT))
                 MPI_Send(m_grid.right_read, m_Nx, MPI_DOUBLE, m_rank+1, tag, mpi_comm_alive_world);
@@ -467,43 +464,53 @@ int main(int argc, char **argv) {
             if(!(m_border & TOP))
                 MPI_Recv(m_grid.topR, m_Ny, MPI_DOUBLE, m_rank - Ny_threads_nb, tag, mpi_comm_alive_world, MPI_STATUS_IGNORE);
 
-            // On avance d'un pas dans le temps
+            // On avance d'un pas dans le auxs
 
             one_step(&m_grid, m_border, dt, dx, dy, kappa);
             swap_read_write(&m_grid);
         }
         
-        if (calc_err && (m_rank != rank_active_temp_thread || !m_rank)) {
-            exact_sol_grid(&grid_sol_exact, offset_nx, offset_ny, dx, dy,
-                    step*dt, T_max, kappa, sigma);
-            L2_err_loc = L2_diff(&m_grid, &grid_sol_exact);
-        }
-        
-        MPI_Reduce(&L2_err_loc, &L2_err_global, 1, MPI_DOUBLE, MPI_SUM, rank_active_temp_thread, mpi_comm_temp_alive_world);
+        if (calc_err) {
+	    if (m_rank != rank_active_aux_thread || !m_rank) {
+		exact_sol_grid(&grid_sol_exact, offset_nx, offset_ny, dx, dy,
+			   step*dt, T_max, kappa, sigma);
+		L2_err_loc = L2_diff(&m_grid, &grid_sol_exact);
+	    }
+	    MPI_Reduce(&L2_err_loc, &L2_err_global, 1, MPI_DOUBLE, MPI_SUM, rank_active_aux_thread, mpi_comm_aux_alive_world);
+	    if (m_rank == rank_active_aux_thread) {
+		L2_err[step] = sqrt(L2_err_global) / (Nx * Ny);
+		times[step] = step*dt;
+		if (!(step%100)) {
+		    printf("\rTime, Error : %g, %g", times[step], L2_err[step]);
+		    fflush(stdout);
+		}
+	    }
+	}
+    }
 
-        if (m_rank == rank_active_temp_thread) {
-            L2_err[step] = sqrt(L2_err_global) / (Nx * Ny);
-            times[step] = step*dt;
-            printf("Time : %f \n Error : %f \n", times[step], L2_err[step]);
-        }
+    if (calc_err && m_rank==rank_active_aux_thread) {
+	FILE* gnuplot_pipe = popen("gnuplot -p", "w");
+	plot_curve_1D(gnuplot_pipe, times, L2_err,
+		      nb_steps, "", "w l");
+	pclose(gnuplot_pipe);
     }
     
-    free_ext_grid(&m_grid);
-    free_ext_grid(&grid_sol_exact);
-    MPI_Group_free(&mpi_group_world);
-    MPI_Group_free(&mpi_group_alive_world);
-    MPI_Group_free(&mpi_group_temp_alive_world);
+    /* if (m_Nx && m_Ny) { */
+    /* 	free_ext_grid(&m_grid); */
+    /* 	free_ext_grid(&grid_sol_exact); */
+    /* } */
+    /* MPI_Group_free(&mpi_group_world); */
+    /* MPI_Group_free(&mpi_group_alive_world); */
+    /* MPI_Group_free(&mpi_group_aux_alive_world); */
     
-    // TODO :voir les Comm_free...
-    
-    if (calc_err) {
-        free(times);
-        free(L2_err);
-    }
-    
+    /* // TODO :voir les Comm_free... */
+    /* if (calc_err && m_rank==rank_active_aux_thread) { */
+    /*     free(times); */
+    /*     free(L2_err); */
+    /* } */
+	    
     MPI_Finalize();
-    return EXIT_SUCCESS;
-
+    return 0;
 }
 
 
@@ -523,10 +530,4 @@ int main(int argc, char **argv) {
     /* printf("bottomR      %p\n", m_grid.bottomR);      */
     /* printf("leftR        %p\n", m_grid.leftR);        */
     /* printf("rightR       %p\n", m_grid.rightR);  */    
-    
-    /* free_ext_grid(&m_grid); */
-    /* free_ext_grid(&grid_sol_exact); */
-    /* if (calc_err) { */
-    /* 	free(times); */
-    /* 	free(L2_err); */
-    /* } */
+

@@ -16,7 +16,7 @@ target_link_libraries(seq
   )
 
 add_executable(para
-  seqParallel.c
+  justParallel.c
   )
 
 target_link_libraries(para
