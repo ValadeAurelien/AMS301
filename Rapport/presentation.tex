@@ -98,7 +98,8 @@
 %\makeatletter \def\input@path{{Graphics/}} \makeatother
 %\graphicspath{{Images/}}
 \usepackage{caption}
-
+\usepackage{tikz}
+\usetikzlibrary{positioning, calc}
 % MACRO
 
 \newenvironment{blockitemize}[1]{
@@ -197,7 +198,7 @@
 
   \begin{blockitemize}{On cherche à connaître}  
   \item La répartition des processeurs sur une grille $P_x\times P_y$ 
-  \item La taille de la grille locale $N^p_x\times N^p_y$ pour chaque grille locale (sauf sur les bords)
+  \item La taille de la grille locale $N^p_x\times N^p_y$ pour chaque processeur (sauf sur les bords)
   \end{blockitemize}
   
   \begin{blockitemize}{Méthode}
@@ -207,28 +208,222 @@
 \end{frame}
 
 
-\begin{frame}{Constuction de la grille de processeurs}
+\begin{frame}{Construction de la grille de processeurs}
   \begin{enumerate}
   \item Premier calcul des $P_x, P_y$ : 
     \[P_x = \left\lfloor\sqrt{P\frac{N_x}{N_y}}\right\rfloor, \qquad P_y =
       \left\lfloor\frac{P}{P_x}\right\rfloor \]
   \item Heurisitique de modification des $P_x, P_y$ :
-    \[P_x, P_y = \mathop{\text{argmin}}_{i,j\in V}\big(P - i  \times j\big), \qquad V = \{P_x\pm1,P_y\pm1\}\]
+    \[P_x, P_y = \mathop{\text{argmin}}_{i,j\in V}\big(P - i  \times j\big), \qquad V = \{P_x, P_x\pm1\}\times\{P_y, P_y\pm1\}\]
   \item Calcul des $N^p_x, N^p_y$ : 
     \[N^p_x = \left\lfloor\frac{N_x}{P_x}\right\rfloor, \qquad N^p_y = \left\lfloor\frac{N_y}{P_y}\right\rfloor\]
   \end{enumerate}
 \end{frame}
 
+\begin{frame}{Exemple illustratif}
+  \begin{figure}
+    \centering
+    \resizebox{.9\textwidth}{!}{
+      \begin{tikzpicture}
+        % \foreach \x in {0,...,47}
+        % \foreach \y in {-21,...,0}
+        % {
+        % \coordinate (ptc) at (\x, \y);
+        % \fill ($ (0,0)!.2!(ptc) + (.1,-.1) $) circle (.75pt);
+        % }
+        
+        \draw[xshift=.1cm, yshift=-.1cm, step=.2cm, gray, very thin] (0, 0) grid (9.4, -4.2);  %pts
+        \draw[xstep=2cm, ystep=1cm, red, thick] (0, 0) grid (8, -4);  %proc center
+        \draw[ystep=4mm, xstep=2cm, red, thick] (0,-4) grid (8,-4.41);
+        \draw[ystep=1cm, xstep=1.6cm, red, thick] (8,0) grid (9.6,-4);
+        \draw[red, thick] (8,-4) rectangle (9.6,-4.4);
+      \end{tikzpicture}
+    }
+    \caption{Répartion d'une grille de taille $47$ par $21$ points sur $25$ processeurs.}
+    \label{fig:rep_proc}
+  \end{figure}
+\end{frame}
+
+
+\begin{frame}{Processeurs supplémentaires}
+  \begin{blockitemize}{Existence inevitable}
+  \item Souvent impossible d'utiliser tous les processeurs à disposition.
+  \item Exemple : si $P$ est un nombre premier...
+  \end{blockitemize}
+  \begin{blockitemize}{Réutilisation}
+  \item Le premier processeur non utilisé devient le processeur auxiliaire :
+  \item Chargé de l'affichage
+  \item Calcul la CFL
+  \item Rassemble les erreurs $L^2$ locales et les somme
+  \end{blockitemize}
+  \begin{blockitemize}{Les autres...}
+  \item sont perdus...
+  \end{blockitemize}
+\end{frame}
+
+  
 \subsection{Structure de la grille locale}
 
 \begin{frame}{Une structure non triviale}
   \begin{blockitemize}{Intérêts}
   \item Accéder sans difficulté aux informations copiées depuis les processeurs voisins
   \item Avoir des contenants facilitant les communications entre processeurs
-  \end{blockitemqize}
-  
+  \end{blockitemize}
+  \begin{figure}
+    \centering
+    \hfill
+    \resizebox{.45\textwidth}{!}{
+      \begin{tikzpicture}
+        \fill[black, rounded corners] (-4,4) rectangle (4,-4);
+        \draw[step=0.5cm, gray, very thin] (-3, -3)    grid (3, 3);     %center
+        \draw[step=0.5cm, gray, very thin] (-3, 3.5)   grid (3, 3);     %top
+        \draw[step=0.5cm, gray, very thin] (-3, -3.5)  grid (3, -3);    %bottom
+        \draw[step=0.5cm, gray, very thin] (-3.5, 3)   grid (-3, -3);   %left
+        \draw[step=0.5cm, gray, very thin] (3, 3)      grid (3.5, -3);  %right
+
+        \fill[blue!40!white, opacity=.7] (-2.5, -2.5) rectangle (2.5, 2.5);  %center
+        \fill[red!40!white,  opacity=.7] (-3, 3.5)     rectangle (3, 3);      %top out   
+        \fill[red!40!white,  opacity=.7] (-3, -3.5)    rectangle (3, -3);     %bottom out
+        \fill[red!40!white,  opacity=.7] (-3.5, 3)     rectangle (-3, -3);    %left out 
+        \fill[red!40!white,  opacity=.7] (3, 3)        rectangle (3.5, -3);   %right out
+
+        \fill[green!40!white,  opacity=.7]  (-3, 3)    rectangle (3, 2.5);      %top in   
+        \fill[green!40!white,  opacity=.7]  (-3, -2.5) rectangle (3, -3);     %bottom in
+        \fill[yellow!40!white, opacity=.7] (-3, 3)    rectangle (-2.5, -3);    %left in 
+        \fill[yellow!40!white, opacity=.7] (2.5, 3)   rectangle (3, -3);   %right in
+
+        \node at (0,0)     () {\small 1}; %center
+        \node at (0,3.25)  () {\small 2}; %top out
+        \node at (0,-3.25) () {\small 3}; %bottom out
+        \node at (-3.25,0) () {\small 4}; %left out
+        \node at (3.25,0)  () {\small 5}; %right out
+        \node at (0,2.75)  () {\small 6}; %top in
+        \node at (0,-2.75) () {\small 7}; %bottom in
+        \node at (-2.75,0) () {\small 8}; %left in
+        \node at (2.75,0)  () {\small 9}; %right in
+      \end{tikzpicture}
+    }
+    \hfill
+    \begin{minipage}[b]{.3\textwidth}
+      \begin{enumerate}
+      \item \texttt{center}
+      \item \texttt{top\_out}
+      \item \texttt{bottom\_out}
+      \item \texttt{left\_out}
+      \item \texttt{right\_out}
+      \item \texttt{top\_in}
+      \item \texttt{bottom\_in}
+      \item \texttt{left\_in}
+      \item \texttt{right\_in}
+      \end{enumerate}
+    \end{minipage}
+    \hfill
+\end{figure}
 \end{frame}
 
+\begin{frame}{Communication entre grilles étendues}{Exemple de communication}
+  \centering
+  \begin{minipage}{.5\textwidth}
+    \resizebox{\textwidth}{!}{
+      \begin{tikzpicture}
+        % \fill[black, rounded corners] (-2.5, 3) rectangle (7,-3);
+        \coordinate (lt) at (-1.5,1.5);
+        \coordinate (rt) at (1.5,1.5);
+        \coordinate (lb) at (-1.5,-1.5);
+        \coordinate (rb) at (1.5,-1.5);
+        
+        \coordinate (ult) at (-1.5,1.75);
+        \coordinate (llt) at (-1.75,1.5);
+        \coordinate (rrb) at (1.75,-1.5);
+        \coordinate (brb) at (1.5,-1.75);
+
+        \coordinate (lrt) at (1.5,1.25);
+        \coordinate (brt) at (1.5,1.25);
+        \coordinate (tlb) at (-1.5,-1.25);
+        \coordinate (rlb) at (-1.25,-1.5);
+
+        \coordinate (shift) at (5.9999,0);
+
+        \node at ($ (lt)!.5!(rt) + (0,.75)$) () {\small proc 1};
+        \node at ($ (lt)!.5!(rt) + (0,.75) + (shift) $) () {\small proc 2};
+
+        \draw[step=0.25cm, gray, very thin] (lt)    grid (rb);   %center
+        \draw[step=0.25cm, gray, very thin] (ult)   grid (rt);   %top
+        \draw[step=0.25cm, gray, very thin] (lb)    grid (brb);  %bottom
+        \draw[step=0.25cm, gray, very thin] (llt)   grid (lb);   %left
+        \draw[step=0.25cm, gray, very thin] (rt)    grid (rrb);  %right
+
+        \draw[step=0.25cm, gray, very thin] ($ (lt) + (shift)  $)  grid ($ (rb) + (shift)  $);   %center
+        \draw[step=0.25cm, gray, very thin] ($ (ult) + (shift) $)  grid ($ (rt) + (shift)  $);   %top
+        \draw[step=0.25cm, gray, very thin] ($ (lb) + (shift)  $)  grid ($ (brb) + (shift) $);   %bottom
+        \draw[step=0.25cm, gray, very thin] ($ (llt) + (shift) $)  grid ($ (lb) + (shift)  $);   %left
+        \draw[step=0.25cm, gray, very thin] ($ (rt) + (shift)  $)  grid ($ (rrb) + (shift) $);   %right
+
+        \fill[red!40!white,  opacity=.7]   (rt) rectangle (rrb);   %left out 
+        \fill[yellow!40!white,  opacity=.7] ($ (lt) + (shift) $) rectangle ($ (rlb) + (shift) $);  %left in
+        \draw[<-, thick, double] ($ ($(rt)!.5!(rrb)$) + (0.125,0) $) to ($ ($ ($(lt)!.5!(rlb)$) + (shift) $) + (-.125, 0) $);
+        \draw[<-, thick, double] ($ ($(rt)!.5!(rrb)$) + (0.125, 1) $) to ($ ($ ($(lt)!.5!(rlb)$) + (shift) $) + (-.125, 1) $);
+        \draw[<-, thick, double] ($ ($(rt)!.5!(rrb)$) + (0.125, -1) $) to ($ ($ ($(lt)!.5!(rlb)$) + (shift) $) + (-.125, -1) $);
+      \end{tikzpicture}
+    }
+  \end{minipage}
+  \hspace{50pt}
+  \begin{minipage}[t]{.3\textwidth}
+    \small
+    Communication droite vers gauche : copie \texttt{right\_in} de proc 1 dans \texttt{left\_out} de proc 2.
+  \end{minipage}
+
+  \vspace{50pt}
+  \begin{minipage}{.5\textwidth}
+  \resizebox{\textwidth}{!}{
+    \begin{tikzpicture}
+      % \fill[black, rounded corners] (-2.5, 3) rectangle (7,-3);
+      \coordinate (lt) at (-1.5,1.5);
+      \coordinate (rt) at (1.5,1.5);
+      \coordinate (lb) at (-1.5,-1.5);
+      \coordinate (rb) at (1.5,-1.5);
+      
+      \coordinate (ult) at (-1.5,1.75);
+      \coordinate (llt) at (-1.75,1.5);
+      \coordinate (rrb) at (1.75,-1.5);
+      \coordinate (brb) at (1.5,-1.75);
+
+      \coordinate (lrt) at (1.5,1.25);
+      \coordinate (brt) at (1.5,1.25);
+      \coordinate (tlb) at (-1.5,-1.25);
+      \coordinate (rlb) at (-1.25,-1.5);
+
+      \coordinate (shift) at (5.9999,0);
+
+      \node at ($ (lt)!.5!(rt) + (0,.75)$) () {\small proc 1};
+      \node at ($ (lt)!.5!(rt) + (0,.75) + (shift) $) () {\small proc 2};
+
+      \draw[step=0.25cm, gray, very thin] (lt)    grid (rb);   %center
+      \draw[step=0.25cm, gray, very thin] (ult)   grid (rt);   %top
+      \draw[step=0.25cm, gray, very thin] (lb)    grid (brb);  %bottom
+      \draw[step=0.25cm, gray, very thin] (llt)   grid (lb);   %left
+      \draw[step=0.25cm, gray, very thin] (rt)    grid (rrb);  %right
+
+      \draw[step=0.25cm, gray, very thin] ($ (lt) + (shift)  $)  grid ($ (rb) + (shift)  $);   %center
+      \draw[step=0.25cm, gray, very thin] ($ (ult) + (shift) $)  grid ($ (rt) + (shift)  $);   %top
+      \draw[step=0.25cm, gray, very thin] ($ (lb) + (shift)  $)  grid ($ (brb) + (shift) $);   %bottom
+      \draw[step=0.25cm, gray, very thin] ($ (llt) + (shift) $)  grid ($ (lb) + (shift)  $);   %left
+      \draw[step=0.25cm, gray, very thin] ($ (rt) + (shift)  $)  grid ($ (rrb) + (shift) $);   %right
+
+      \fill[yellow!40!white,  opacity=.7]   (rt) rectangle (rrb);   %left out 
+      \fill[red!40!white,  opacity=.7] ($ (lt) + (shift) $) rectangle ($ (rlb) + (shift) $);  %left in
+      \draw[->, thick, double] ($ ($(rt)!.5!(rrb)$) + (0.125,0) $)   to ($ ($ ($(lt)!.5!(rlb)$) + (shift) $) + (-.125, 0) $);
+      \draw[->, thick, double] ($ ($(rt)!.5!(rrb)$) + (0.125, 1) $)  to ($ ($ ($(lt)!.5!(rlb)$) + (shift) $) + (-.125, 1) $);
+      \draw[->, thick, double] ($ ($(rt)!.5!(rrb)$) + (0.125, -1) $) to ($ ($ ($(lt)!.5!(rlb)$) + (shift) $) + (-.125, -1) $);
+    \end{tikzpicture}
+  }
+  \end{minipage}
+  \hspace{50pt}
+  \begin{minipage}[t]{.3\textwidth}
+    \small
+    Communication gauche vers droite : copie \texttt{right\_out} de proc 1 dans \texttt{left\_in} de proc 2.
+  \end{minipage}
+\end{frame}
 
 \end{document}
 %%% Local Variables:

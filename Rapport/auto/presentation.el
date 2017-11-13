@@ -25,10 +25,13 @@
     "mathtools"
     "graphicx"
     "epstopdf"
-    "caption")
+    "caption"
+    "tikz")
    (TeX-add-symbols
     '("blockincludetwo" 2)
     '("blockinclude" 1))
+   (LaTeX-add-labels
+    "fig:rep_proc")
    (LaTeX-add-environments
     '("blockenumerate" 1)
     '("blockitemize" 1))
