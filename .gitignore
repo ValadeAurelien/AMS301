@@ -2,4 +2,10 @@
 *.out 
 *log*
 *.png
-build/*
+build/*make*
+build/*Make*
+build/output*
+*aux
+*toc
+*nav
+*snm

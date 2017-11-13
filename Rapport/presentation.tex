@@ -1,0 +1,237 @@
+\documentclass[17pt]{beamer}
+\usepackage{geometry}
+\geometry{papersize={21cm,15.75cm}}
+
+\beamertemplatenavigationsymbolsempty
+
+%%%% CANVAS %%%%%
+\setbeamertemplate{background canvas}[vertical shading][bottom=black!80!blue!90,top=black!100]
+
+%%%% OUTER %%%%%
+\useoutertheme{infolines}
+\setbeamercolor{section in head/foot}{fg=white, bg=}
+\setbeamerfont{section in head/foot}{size=\fontsize{12}{12}\selectfont\vspace*{-5pt}}
+
+\setbeamercolor{subsection in head/foot}{fg=white, bg=}
+\setbeamerfont{subsection in head/foot}{size=\fontsize{12}{12}\selectfont\vspace*{-5pt}}
+
+\setbeamercolor{title in head/foot}{fg=white, bg=}
+\setbeamerfont{title in head/foot}{size=\fontsize{12}{12}\selectfont\vspace*{1pt}}
+\setbeamercolor{date in head/foot}{fg=white, bg=}
+\setbeamerfont{date in head/foot}{size=\fontsize{12}{12}\selectfont\vspace*{-1pt}}
+\setbeamercolor{author in head/foot}{fg=white, bg=}
+\setbeamerfont{author in head/foot}{size=\fontsize{12}{12}\selectfont\vspace*{2pt}}
+
+%%%%% BLOCKS + INNER %%%%%
+
+\useinnertheme{default}
+\setbeamercolor{block body}{bg=, fg=white}
+\setbeamercolor{block title}{bg=, fg=white}
+\setbeamerfont{block title}{series=\bfseries, size=\normalsize}
+
+\setbeamercolor{alerted text}{fg=red}
+\setbeamercolor{block body alerted}{bg=, fg=white}
+\setbeamercolor{block title alerted}{bg=,fg=red}
+
+\setbeamercolor{block body example}{bg=, fg=white}
+\setbeamercolor{block title example}{bg=, fg=green}
+
+\setbeamercolor{fine separation line}{}
+\setbeamercolor{frametitle}{fg=yellow}
+\setbeamercolor{item projected}{fg=white}
+\setbeamercolor{normal text}{bg=,fg=white}
+\setbeamercolor{structure}{bg=, fg=yellow!70}
+
+\setbeamercolor{title}{fg=white}
+\setbeamerfont{title}{size=\huge}
+\setbeamercolor{author}{fg=white}
+\setbeamerfont{author}{size=\Large}
+\setbeamercolor{titlelike}{fg=white}
+
+\newlength{\halfwidth}
+\newlength{\halfheight}
+\setlength{\halfwidth}{0.5\textwidth}
+\setlength{\halfheight}{0.42\textheight}
+
+\newcommand{\blockinclude}[1]
+{
+  \fontsize{12pt}{12pt}\selectfont
+  \setbeamertemplate{blocks}[rounded]{~}
+  \setbeamercolor{block body}{bg=white, fg=black} %
+  \begin{block}{}\centering\include{#1}\end{block}
+}
+
+\newcommand{\blockincludetwo}[2]
+{
+  \fontsize{12pt}{12pt}\selectfont
+  \setbeamertemplate{blocks}[rounded]{~}
+  \setbeamercolor{block body}{bg=white, fg=black} %
+  \begin{block}{}
+    \centering 
+    \resizebox{.5\halfwidth}{\halfheight}{
+      \begin{minipage}{\halfwidth}
+        \include{#1}
+      \end{minipage}
+    }
+    \resizebox{\halfwidth}{!}{
+      \begin{minipage}{\halfwidth}
+        \include{#2}
+      \end{minipage}
+    }
+  \end{block}
+}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+
+\usepackage[utf8]{inputenc}
+\usepackage{multirow}
+
+% MATH
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{mathtools}
+\usefonttheme[onlymath]{serif}
+
+% IMAGES
+\usepackage{graphicx}
+\usepackage{epstopdf}
+%\makeatletter \def\input@path{{Graphics/}} \makeatother
+%\graphicspath{{Images/}}
+\usepackage{caption}
+
+% MACRO
+
+\newenvironment{blockitemize}[1]{
+  \begin{block}<+->{#1}
+    \begin{itemize}
+    }{
+    \end{itemize}
+  \end{block}
+}
+
+\newenvironment{blockenumerate}[1]{
+  \begin{block}<+->{#1}
+    \begin{enumerate}
+    }{
+    \end{enumerate}
+  \end{block}
+}
+
+\title[Parallélisation]{Parallélisation d'un code de diffusion de la chaleur en deux dimension}
+\author[Dufumier \& Valade]{Dufumier \& Valade \\ Projet d'AMS301}
+\date{}
+
+\begin{document}
+
+\begin{frame}
+  \maketitle
+\end{frame}
+
+\section{Introduction}
+
+\begin{frame}{But du TP}
+  \begin{block}<+->{Code séquentiel}
+    Créer un code séquentiel qui résolve l'équation de la chaleur sur un grille 2D sur un seul processeur
+    en utilisant la méthode des différences finies spatiales et temporelles.
+  \end{block}
+  \begin{block}<+->{Code parallel}
+    Paralleliser ce code sur un grille structurée.
+  \end{block}
+  \begin{block}<+->{Outils}
+    Utilisation du langage \texttt{C} et de la bibliothèque \texttt{MPI}. On fera tourner le code sur la
+    machine \texttt{gin} pour étudier les scalabilité faible et forte.
+  \end{block}
+\end{frame}
+
+\section{Code sequentiel}
+\begin{frame}{But du développement séquentiel préalable}
+  \begin{blockitemize}{Buts principaux}
+  \item Créer des outils réutilisables dans le code parallèle
+  \item Avoir une méthodologie de vérfication de la justesse du code. On utilise une solution exacte
+    en espace et en temps et on calcul de l'écart de la solution approximée à cette solution exacte.
+  \end{blockitemize}
+  
+  \begin{blockitemize}{On s'attachera à vérifier que }
+  \item Les arguments sont bien passés en début de fonction
+  \item La solution exacte est bonne
+  \item L'équation locale bien implémentée
+  \item La norme $L^2$ fonctionne
+  \end{blockitemize}
+\end{frame}
+
+\begin{frame}{Structure du programme}
+  \begin{itemize}
+  \item Récupération des arguments
+  \item Allocation de la mémoire (grilles \texttt{read}, \texttt{write}, \texttt{exact\_sol})
+  \item Calcul de la CFL (sortie si trop grande)
+  \item Initialisation de \texttt{read} avec la solution exacte
+  \item[] Pour $t\in[1,N_{steps}]$
+    \setlength\itemindent{35pt}
+  \item[] Pour $i,j\in[1,N_{pts}-2]^2$
+    \setlength\itemindent{70pt}
+  \item Mettre a jour la grille \texttt{write} au point $(i,j)$ à partir de \texttt{read}
+    \setlength\itemindent{35pt}
+  \item[] Fin Pour
+  \item Comparer \texttt{write} avec \texttt{exact\_sol} avec la norme $L^2$
+  \item Échanger les pointeurs de \texttt{read} et \texttt{write}
+    \setlength\itemindent{0pt}
+  \item[] Fin Pour 
+  \item Afficher les résultats
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Résultats}
+  
+\end{frame}
+
+\section{Code parallèle}
+
+\subsection{Partage de la grille}
+
+\begin{frame}{Problème et méthode}
+ \textcolor{red}{\textbf{On procède à un découpage structuré de la grille en deux dimensions.}}
+  \begin{blockitemize}{On dipose des valeurs suivantes }
+  \item Une grille globale de $N_x\times N_y$ points
+  \item $P$ processeurs
+  \end{blockitemize}
+
+  \begin{blockitemize}{On cherche à connaître}  
+  \item La répartition des processeurs sur une grille $P_x\times P_y$ 
+  \item La taille de la grille locale $N^p_x\times N^p_y$ pour chaque grille locale (sauf sur les bords)
+  \end{blockitemize}
+  
+  \begin{blockitemize}{Méthode}
+  \item On choisit de faire que les grilles locales soient homotétiques à la grille globale 
+  \item Pour maximiser le nombre de processeurs utilisés, on ajoute une fonction heuristique
+  \end{blockitemize}
+\end{frame}
+
+
+\begin{frame}{Constuction de la grille de processeurs}
+  \begin{enumerate}
+  \item Premier calcul des $P_x, P_y$ : 
+    \[P_x = \left\lfloor\sqrt{P\frac{N_x}{N_y}}\right\rfloor, \qquad P_y =
+      \left\lfloor\frac{P}{P_x}\right\rfloor \]
+  \item Heurisitique de modification des $P_x, P_y$ :
+    \[P_x, P_y = \mathop{\text{argmin}}_{i,j\in V}\big(P - i  \times j\big), \qquad V = \{P_x\pm1,P_y\pm1\}\]
+  \item Calcul des $N^p_x, N^p_y$ : 
+    \[N^p_x = \left\lfloor\frac{N_x}{P_x}\right\rfloor, \qquad N^p_y = \left\lfloor\frac{N_y}{P_y}\right\rfloor\]
+  \end{enumerate}
+\end{frame}
+
+\subsection{Structure de la grille locale}
+
+\begin{frame}{Une structure non triviale}
+  \begin{blockitemize}{Intérêts}
+  \item Accéder sans difficulté aux informations copiées depuis les processeurs voisins
+  \item Avoir des contenants facilitant les communications entre processeurs
+  \end{blockitemqize}
+  
+\end{frame}
+
+
+\end{document}
+%%% Local Variables:
+%%% mode: latex
+%%% TeX-master: t
+%%% End:

@@ -1,0 +1,5 @@
+\beamer@sectionintoc {1}{Introduction}{2}{0}{1}
+\beamer@sectionintoc {2}{Code sequentiel}{5}{0}{2}
+\beamer@sectionintoc {3}{Code parall\IeC {\`e}le}{9}{0}{3}
+\beamer@subsectionintoc {3}{1}{Partage de la grille}{9}{0}{3}
+\beamer@subsectionintoc {3}{2}{Structure de la grille locale}{13}{0}{3}

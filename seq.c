@@ -3,6 +3,7 @@
 #include <math.h>
 #include <unistd.h>
 #include <string.h>
+#include <time.h>
 #include "utils.h"
 #define MIN(a, b) ((a)<(b) ? (a) : (b))
 
@@ -100,10 +101,11 @@ int main(int argc, char **argv)
       lecture des arguments
     */
     if (argc<13) {
-	printf("Missing args (got %d instead of 12) : \n");
-        printf("Args : Nx, Ny, nb_steps, t_end, a, b, kappa, CFL, T_max, sigma, plot_every, calc_err\n", argc);
+	printf("Missing args (got %d instead of 12) : \n", argc);
+        printf("Args : Nx, Ny, nb_steps, t_end, a, b, kappa, CFL, T_max, sigma, plot_every, calc_err\n");
 	return EXIT_FAILURE;
     }
+    
     const int Nx = floor(atof(argv[1])),
 	Ny = floor(atof(argv[2])),
 	nb_steps = floor(atof(argv[3]));
@@ -180,9 +182,7 @@ int main(int argc, char **argv)
     */
     unsigned step;
     for (step=0; step<nb_steps; step++) {
-	if ( !(step%(int) floor(nb_steps/1000.)) ) {
-	    printf("\rt = %f", step*dt); fflush(stdout);
-	}
+
 	one_step(grid_write, grid_read,
 		 Nx, Ny, dt, dx, dy,
 		 kappa);
@@ -203,9 +203,13 @@ int main(int argc, char **argv)
 			   a, b);
 	    times[step] = step*dt;
 	    L2_err[step] = L2_diff(grid_read, grid_sol_exact, Nx, Ny);
+	    if ( !(step%(int) floor(nb_steps/1000.)) ) {
+	        printf("t = %f , erreur = %f \n", times[step], L2_err[step]); fflush(stdout);
+	    }
 	}
     }
-
+    double exec_time = (double)clock()/CLOCKS_PER_SEC;
+    printf("\n Temps d'exécution du programme : %f s\n", exec_time); fflush(stdout);
     if (calc_err) {
 	plot_curve_1D(gnuplot_pipe_err, times, L2_err,
 		      nb_steps, gpterr_pre_cmd, gpterr_opt);

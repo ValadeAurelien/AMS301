@@ -3,6 +3,7 @@
 #include <math.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <time.h>
 #include <mpi.h>
 #include "utils.h"
 #define MIN(a, b) ((a)<(b) ? (a) : (b))
@@ -13,6 +14,12 @@
    2 -> cannot allocate mem
    3 -> CFL too big
 */
+/* 
+   CODE_OUTPUT   VAL1        VAL2
+   0             TIME        ERR
+   1             NB_CORES    TIME_CALC
+*/
+
 /* Définition et fonctions sur les grilles étendues 
    struct, border, indice, malloc, free, at(), swap. */
 typedef struct ext_grid_t {
@@ -37,30 +44,52 @@ typedef struct ext_grid_t {
 
 enum border_t { TOP=1, BOTTOM=2, LEFT=4, RIGHT=8, NONE=0 };
 
-
+enum request_t { TOP_REQUEST=0, BOTTOM_REQUEST=1, 
+                 LEFT_REQUEST=2, RIGHT_REQUEST=3 };
 
 unsigned IND(unsigned nx, unsigned ny, unsigned Ny) {
     return nx*Ny+ny;
+}
+int max(int a, int b){
+    if(a<b) return b;
+    else return a;
 }
 
 /* fonction pour allouer automatiquement la mémoire à une grille étendue */
 bool malloc_ext_grid(ext_grid_t* m_grid, bool with_write, bool with_borders) {
     bool alloc_state;
-    m_grid->grid_read   = (double*) malloc((m_grid->m_Nx - 2) * (m_grid->m_Ny - 2) * sizeof(double));
+    bool alloc_grid_read = true, alloc_grid_write = true;
+    if(m_grid->m_Nx > 2 && m_grid->m_Ny > 2) {
+    	m_grid->grid_read   = (double*) malloc((m_grid->m_Nx - 2) * (m_grid->m_Ny - 2) * sizeof(double));
+	alloc_grid_read = m_grid->grid_read;
+    } else {
+	m_grid->grid_read = NULL;
+    }
     m_grid->top_read    = (double*) malloc(m_grid->m_Ny * sizeof (double));
     m_grid->bottom_read = (double*) malloc(m_grid->m_Ny * sizeof (double));  
     m_grid->left_read   = (double*) malloc(m_grid->m_Nx * sizeof (double));
     m_grid->right_read  = (double*) malloc(m_grid->m_Nx * sizeof (double));
-    alloc_state = m_grid->grid_read && m_grid->top_read &&
+    alloc_state = alloc_grid_read && m_grid->top_read &&
 	m_grid->bottom_read && m_grid->left_read && m_grid->right_read;	
     if (with_write) {
-	m_grid->grid_write   = (double*) malloc((m_grid->m_Nx - 2) * (m_grid->m_Ny - 2) * sizeof(double));
+	if(m_grid->m_Nx > 2 && m_grid->m_Ny > 2) {
+	    m_grid->grid_write   = (double*) malloc((m_grid->m_Nx - 2) * (m_grid->m_Ny - 2) * sizeof(double));
+	    alloc_grid_write = m_grid->grid_write;
+	} else {
+          m_grid->grid_write = NULL;
+	}
 	m_grid->top_write    = (double*) malloc(m_grid->m_Ny * sizeof (double));
 	m_grid->bottom_write = (double*) malloc(m_grid->m_Ny * sizeof (double));  
 	m_grid->left_write   = (double*) malloc(m_grid->m_Nx * sizeof (double));
 	m_grid->right_write  = (double*) malloc(m_grid->m_Nx * sizeof (double));
-	alloc_state = alloc_state && m_grid->grid_write && m_grid->top_write &&
+	alloc_state = alloc_state && alloc_grid_write && m_grid->top_write &&
 	    m_grid->bottom_write && m_grid->left_write && m_grid->right_write;	
+    } else{
+        m_grid->grid_write   = NULL;
+	m_grid->top_write    = NULL;
+	m_grid->bottom_write = NULL;  
+	m_grid->left_write   = NULL;
+	m_grid->right_write  = NULL;
     }
     if (with_borders) {
 	m_grid->topR    = (double*) malloc(m_grid->m_Ny * sizeof (double));
@@ -69,20 +98,19 @@ bool malloc_ext_grid(ext_grid_t* m_grid, bool with_write, bool with_borders) {
 	m_grid->rightR  = (double*) malloc(m_grid->m_Nx * sizeof (double));
 	alloc_state = alloc_state && m_grid->topR &&
 	    m_grid->bottomR && m_grid->leftR && m_grid->rightR;	
+    } else{
+        m_grid->topR    = NULL;
+	m_grid->bottomR = NULL;
+	m_grid->leftR   = NULL;
+	m_grid->rightR  = NULL;
     }
     return !alloc_state;
 }
 
+
 void free_ext_grid(ext_grid_t* ext_grid) {
     // PAS DE FREE DE EXT_GRID (pas alloué dynamiquement)
-    /*
-    if(ext_grid->top_write == ext_grid->left_write)
-        printf("grid_left\n");
-    if(ext_grid->top_write == ext_grid->right_write)
-        printf("grid_right\n");
-    if(ext_grid->topR == ext_grid->top_read)
-        printf("grid_topR\n");
-    */
+    
     if (ext_grid->grid_read)    free(ext_grid->grid_read);
     if (ext_grid->top_read)     free(ext_grid->top_read);
     if (ext_grid->bottom_read)  free(ext_grid->bottom_read);
@@ -91,12 +119,12 @@ void free_ext_grid(ext_grid_t* ext_grid) {
     if (ext_grid->grid_write)   free(ext_grid->grid_write);
     if (ext_grid->top_write)    free(ext_grid->top_write);
     if (ext_grid->bottom_write) free(ext_grid->bottom_write);
-    /*if (ext_grid->left_write)   free(ext_grid->left_write);*/
-    /*if (ext_grid->right_write)  free(ext_grid->right_write);*/
-    /*if (ext_grid->topR)         free(ext_grid->topR);*/
-    /*if (ext_grid->bottomR)      free(ext_grid->bottomR);*/
-    /*if (ext_grid->leftR)        free(ext_grid->leftR);*/
-    /*if (ext_grid->rightR)       free(ext_grid->rightR);*/
+    if (ext_grid->left_write)   free(ext_grid->left_write);
+    if (ext_grid->right_write)  free(ext_grid->right_write);
+    if (ext_grid->topR)         free(ext_grid->topR);
+    if (ext_grid->bottomR)      free(ext_grid->bottomR);
+    if (ext_grid->leftR)        free(ext_grid->leftR);
+    if (ext_grid->rightR)       free(ext_grid->rightR);
 }
 
 /* lire facilement une grille étendue */
@@ -249,11 +277,12 @@ void optimize_Nx_thr_Ny_thr(int* Nx_threads_nb, int* Ny_threads_nb, int N_thread
     int min_ind=0,
 	min=diff[0],
 	ind;
-    for (ind=1; ind<5; ind++) 
-	if (diff[ind]<min && diff[ind]>0) {
+    for (ind=1; ind<5; ind++) {
+	if (diff[ind]<min && diff[ind]>=0) {
 	    min_ind = ind;
 	    min = diff[ind];
 	}
+    }
     if (min_ind==1) (*Nx_threads_nb)++;
     else if (min_ind==2) (*Ny_threads_nb)++;
     else if (min_ind==3) {
@@ -271,15 +300,27 @@ void init_ext_grid_size(int rank, int N_threads, int Nx, int Ny,
 			int* ny_thr, int* nx_thr,
                         int* offset_nx, int* offset_ny, unsigned* m_border) {
 
-    // Les petits rectangles sont des "homotéties" du grand 
-    *Nx_threads_nb = floor(sqrt(N_threads * Nx/Ny));
-    *Ny_threads_nb = floor(sqrt(N_threads * Ny/Nx));
+    // Les petits rectangles sont des "homotéties" du grand
+    *Nx_threads_nb = floor(sqrt(N_threads * (double)Nx/Ny));
+    if(*Nx_threads_nb == 0) {
+      *Nx_threads_nb = 1;
+      *Ny_threads_nb = N_threads;
+    }else {
+      *Ny_threads_nb = floor((double)N_threads/(*Nx_threads_nb));
+    }
     // Heuristique sur la dimension des grilles étendues
     optimize_Nx_thr_Ny_thr(Nx_threads_nb, Ny_threads_nb, N_threads); 
-    
-    *m_Nx = floor(Nx/(*Nx_threads_nb));
-    *m_Ny = floor(Ny/(*Ny_threads_nb));
-	   
+    // On charge plus la majorité des threads pour qu'une minorité ait 
+    // moins de travail (il ne faut pas non plus trop les surcharger).
+    if((Nx % (*Nx_threads_nb - 1))>0 && (Ny % (*Ny_threads_nb - 1))>0
+	&& (*Nx_threads_nb)>1 && (*Ny_threads_nb)>1 ){
+        *m_Nx = floor((double)Nx/(*Nx_threads_nb - 1));
+        *m_Ny = floor((double)Ny/(*Ny_threads_nb - 1));
+    }else{
+        *m_Nx = floor((double)Nx/(*Nx_threads_nb));
+        *m_Ny = floor((double)Ny/(*Ny_threads_nb));
+    } 
+    	   
     // Position de notre bout de grille sur la grille réelle
     *nx_thr = (rank/(*Ny_threads_nb));
     *ny_thr = (rank%(*Ny_threads_nb));
@@ -299,10 +340,35 @@ void init_ext_grid_size(int rank, int N_threads, int Nx, int Ny,
     // Choix du type de frontière
     *m_border = NONE;
     if(*offset_nx == 0) *m_border |= TOP;
-    else if(*offset_nx + *m_Nx == Nx) *m_border |= BOTTOM;
+    if(*offset_nx + *m_Nx == Nx) *m_border |= BOTTOM;
     if(*offset_ny == 0) *m_border |= LEFT;
-    else if(*offset_ny + *m_Ny == Ny) *m_border |= RIGHT;
+    if(*offset_ny + *m_Ny == Ny) *m_border |= RIGHT;
 }
+
+// On attend que les envois et réceptions se soient bien passés.
+
+void mpi_wait_requests(const unsigned m_border, 
+                       MPI_Request* send_requests, 
+                       MPI_Request* recv_requests){
+    
+    if(!(m_border & RIGHT)) {
+        MPI_Wait(&send_requests[RIGHT_REQUEST], MPI_STATUS_IGNORE);
+        MPI_Wait(&recv_requests[RIGHT_REQUEST], MPI_STATUS_IGNORE);
+    }
+    if(!(m_border & LEFT)) {
+        MPI_Wait(&send_requests[LEFT_REQUEST], MPI_STATUS_IGNORE);
+        MPI_Wait(&recv_requests[LEFT_REQUEST], MPI_STATUS_IGNORE);
+    }
+    if(!(m_border & TOP)) {
+        MPI_Wait(&send_requests[TOP_REQUEST], MPI_STATUS_IGNORE);
+        MPI_Wait(&recv_requests[TOP_REQUEST], MPI_STATUS_IGNORE);        
+    }
+    if(!(m_border & BOTTOM)) {
+        MPI_Wait(&send_requests[BOTTOM_REQUEST], MPI_STATUS_IGNORE);
+        MPI_Wait(&recv_requests[BOTTOM_REQUEST], MPI_STATUS_IGNORE);        
+    }
+}
+
 
 int main(int argc, char **argv) {
     /*
@@ -320,6 +386,8 @@ int main(int argc, char **argv) {
     int N_threads, m_rank, tag = 0;
     MPI_Comm_size(MPI_COMM_WORLD, &N_threads);
     MPI_Comm_rank(MPI_COMM_WORLD, &m_rank);
+    MPI_Request send_requests[4], recv_requests[4];
+
     /* 
        Définition des constantes 
     */
@@ -335,29 +403,32 @@ int main(int argc, char **argv) {
 	sigma = atof(argv[10]);
     const int plot_every = atoi(argv[11]),
 	calc_err = atoi(argv[12]);
-    /*
+    /* 
       Initialisation des variables
     */
-    double *grid_tmp = NULL, *L2_err = NULL, *times = NULL;
+    double *L2_err = NULL, *times = NULL;
     double L2_err_loc = 0,
-	L2_err_global = 0;
+	L2_err_global = 0,
+        exec_time     = 0;
     
     int Nx_threads_nb, Ny_threads_nb,
 	nx_thr, ny_thr,         // position de thr sur la grille
 	m_Nx, m_Ny,             // Nb de points de discrétisation selon Ox et Oy inclus dans notre grilles
         offset_nx, offset_ny;   // Position de notre grille étendue dans la grille
     unsigned int m_border; 
-
     init_ext_grid_size(m_rank, N_threads, Nx, Ny,
 		       &Nx_threads_nb, &Ny_threads_nb,
 		       &m_Nx, &m_Ny, &nx_thr, &ny_thr,
 		       &offset_nx, &offset_ny, &m_border);
+    sleep(m_rank/10.0);
+    printf("#Init grid size ok rank %d -- m_Nx = %d m_Ny = %d \n", m_rank, m_Nx, m_Ny);
+    
     /* 
        Decompte des threads morts et création de deux nouveaux MPI_Comm adaptés
     */
     int N_alive_threads = Nx_threads_nb*Ny_threads_nb;
     int N_aux_alive_threads = ((N_threads > N_alive_threads) ? N_alive_threads+1 : N_alive_threads);
-    unsigned rank_active_aux_thread = (N_aux_alive_threads == 0 ?  0 : N_alive_threads);
+    unsigned rank_active_aux_thread = (N_aux_alive_threads == N_alive_threads ?  0 : N_alive_threads);
     int *alive_threads = (int*) malloc((N_alive_threads)*sizeof(int)),
 	*aux_alive_threads = (int*) malloc(N_aux_alive_threads*sizeof(int)),
 	athr;
@@ -394,12 +465,12 @@ int main(int argc, char **argv) {
     // Allocation de mémoire pour le centre et les bords de notre grille
     ext_grid_t m_grid, grid_sol_exact;
     bool alloc_err = false;
-    if (m_Nx && m_Ny) {
+    if (m_Nx>0 && m_Ny>0) {
 	m_grid.m_Nx = m_Nx; grid_sol_exact.m_Nx = m_Nx;
 	m_grid.m_Ny = m_Ny; grid_sol_exact.m_Ny = m_Ny;
 	alloc_err = (malloc_ext_grid(&m_grid, true, true) || malloc_ext_grid(&grid_sol_exact, false, false));
     }
-
+    
     // Si des threads ne font rien, il vont recevoir les erreurs L2
     if (calc_err && m_rank == rank_active_aux_thread) {
         L2_err = (double*) malloc(nb_steps * sizeof (double));
@@ -407,20 +478,20 @@ int main(int argc, char **argv) {
         alloc_err |= !times || !L2_err;
     } 
     if (alloc_err){
-        printf("Cannot allocate memory (rank = %d)\n", m_rank);
+        printf("#Cannot allocate memory (rank = %d)\n", m_rank);
 	MPI_Finalize();
         return 2;
-    }	
+    }
     const double dt = t_end/nb_steps,
 	dx = a/Nx,
 	dy = b/Ny,
 	CFL = kappa*dt/MIN(pow(dx, 2), pow(dy, 2));
     
-    if(m_rank == rank_active_aux_thread) printf("CFL : %f \n", CFL); 
+    if(m_rank == rank_active_aux_thread) printf("#CFL : %f \n", CFL); 
     
     if (CFL > CFL_max) {
         if (m_rank == rank_active_aux_thread) {
-	    printf("CFL too big, aborting! \n");
+	    printf("#CFL too big, aborting! \n");
 	    fflush(stdout);
 	}
 	MPI_Finalize();
@@ -435,39 +506,42 @@ int main(int argc, char **argv) {
         exact_sol_grid(&grid_sol_exact, offset_nx, offset_ny, dx, dy,
                        0, T_max, kappa, sigma);
     }
+    sleep(m_rank/10.0);
+    printf("#Init exact sol ok rank %d\n", m_rank);
     /*
       boucle principale
     */
-    //MPI_Barrier(mpi_comm_alive_world);
     unsigned step;
-    for (step=1; step<nb_steps; step++) {
-        
-        if(m_rank != rank_active_aux_thread || !m_rank){
+    for (step=1; step<=nb_steps; step++) {
+	if(m_rank==rank_active_aux_thread && !(step%100))
+	     printf("#Entering iteration %u/%i\n", step, nb_steps);
+        if(m_rank != rank_active_aux_thread || !m_rank) {
+
+            // On calcule la solution en t = dt*nb_step.
+            one_step(&m_grid, m_border, dt, dx, dy, kappa);
+            // On met la nouvelle solution dans la grille de lecture.
+            swap_read_write(&m_grid);
+            
             // Envoi à droite
             if(!(m_border & RIGHT))
-                MPI_Send(m_grid.right_read, m_Nx, MPI_DOUBLE, m_rank+1, tag, mpi_comm_alive_world);
+                MPI_Isend(m_grid.right_read, m_Nx, MPI_DOUBLE, m_rank+1, tag, mpi_comm_alive_world, &send_requests[RIGHT_REQUEST]);
             if(!(m_border & LEFT))
-                MPI_Recv(m_grid.leftR, m_Nx, MPI_DOUBLE, m_rank-1, tag, mpi_comm_alive_world, MPI_STATUS_IGNORE);
+                MPI_Irecv(m_grid.leftR, m_Nx, MPI_DOUBLE, m_rank-1, tag, mpi_comm_alive_world, &recv_requests[LEFT_REQUEST]);
             //Envoi à gauche
             if(!(m_border & LEFT))
-                MPI_Send(m_grid.left_read, m_Nx, MPI_DOUBLE, m_rank-1, tag, mpi_comm_alive_world);
+                MPI_Isend(m_grid.left_read, m_Nx, MPI_DOUBLE, m_rank-1, tag, mpi_comm_alive_world, &send_requests[LEFT_REQUEST]);
             if(!(m_border & RIGHT))
-                MPI_Recv(m_grid.rightR, m_Nx, MPI_DOUBLE, m_rank+1, tag, mpi_comm_alive_world, MPI_STATUS_IGNORE);
+                MPI_Irecv(m_grid.rightR, m_Nx, MPI_DOUBLE, m_rank+1, tag, mpi_comm_alive_world, &recv_requests[RIGHT_REQUEST]);
             //Envoi en haut
             if(!(m_border & TOP))
-                MPI_Send(m_grid.top_read, m_Ny, MPI_DOUBLE, m_rank - Ny_threads_nb, tag, mpi_comm_alive_world);
+                MPI_Isend(m_grid.top_read, m_Ny, MPI_DOUBLE, m_rank - Ny_threads_nb, tag, mpi_comm_alive_world, &send_requests[TOP_REQUEST]);
             if(!(m_border & BOTTOM))
-                MPI_Recv(m_grid.bottomR, m_Ny, MPI_DOUBLE, m_rank + Ny_threads_nb, tag, mpi_comm_alive_world, MPI_STATUS_IGNORE);
+                MPI_Irecv(m_grid.bottomR, m_Ny, MPI_DOUBLE, m_rank + Ny_threads_nb, tag, mpi_comm_alive_world, &recv_requests[BOTTOM_REQUEST]);
             //Envoi en bas
             if(!(m_border & BOTTOM))
-                MPI_Send(m_grid.bottom_read, m_Ny, MPI_DOUBLE, m_rank + Ny_threads_nb, tag, mpi_comm_alive_world);
+                MPI_Isend(m_grid.bottom_read, m_Ny, MPI_DOUBLE, m_rank + Ny_threads_nb, tag, mpi_comm_alive_world, &send_requests[BOTTOM_REQUEST]);
             if(!(m_border & TOP))
-                MPI_Recv(m_grid.topR, m_Ny, MPI_DOUBLE, m_rank - Ny_threads_nb, tag, mpi_comm_alive_world, MPI_STATUS_IGNORE);
-
-            // On avance d'un pas dans le auxs
-
-            one_step(&m_grid, m_border, dt, dx, dy, kappa);
-            swap_read_write(&m_grid);
+                MPI_Irecv(m_grid.topR, m_Ny, MPI_DOUBLE, m_rank - Ny_threads_nb, tag, mpi_comm_alive_world, &recv_requests[TOP_REQUEST]);
         }
         
         if (calc_err) {
@@ -480,54 +554,47 @@ int main(int argc, char **argv) {
 	    if (m_rank == rank_active_aux_thread) {
 		L2_err[step] = sqrt(L2_err_global) / (Nx * Ny);
 		times[step] = step*dt;
-		if (!(step%100)) {
-		    printf("\rTime, Error : %g, %g", times[step], L2_err[step]);
+		if (!(step%100) || step == 1) {
+		    printf("\n0 %g, %g \n", times[step], L2_err[step]);
 		    fflush(stdout);
 		}
 	    }
 	}
-    }
 
-    if (calc_err && m_rank==rank_active_aux_thread) {
+        // On attend que tous les threads aient reçu et envoyé
+        // leurs bords.
+        if(m_rank != rank_active_aux_thread || !m_rank) 
+            mpi_wait_requests(m_border, send_requests, recv_requests);
+    }
+    MPI_Barrier(mpi_comm_aux_alive_world);
+    if(m_rank==rank_active_aux_thread) {
+        exec_time = ((double) clock()/CLOCKS_PER_SEC);
+        printf("\n1 %i %g\n", N_threads, exec_time);
+    }
+    
+    /* Affichage graphique de l'erreur en fonction du temps */
+    /*if (calc_err && m_rank==rank_active_aux_thread) {
 	FILE* gnuplot_pipe = popen("gnuplot -p", "w");
 	plot_curve_1D(gnuplot_pipe, times, L2_err,
-		      nb_steps, "", "w l");
+		      nb_steps, "", "");
 	pclose(gnuplot_pipe);
+    }*/
+    
+    /* Libération des ressources */
+    if (m_Nx && m_Ny) {
+     	free_ext_grid(&m_grid);
+     	free_ext_grid(&grid_sol_exact);
     }
-    
-    /* if (m_Nx && m_Ny) { */
-    /* 	free_ext_grid(&m_grid); */
-    /* 	free_ext_grid(&grid_sol_exact); */
-    /* } */
-    /* MPI_Group_free(&mpi_group_world); */
-    /* MPI_Group_free(&mpi_group_alive_world); */
-    /* MPI_Group_free(&mpi_group_aux_alive_world); */
-    
-    /* // TODO :voir les Comm_free... */
-    /* if (calc_err && m_rank==rank_active_aux_thread) { */
-    /*     free(times); */
-    /*     free(L2_err); */
-    /* } */
+    if (calc_err && m_rank==rank_active_aux_thread) {
+        free(times);
+        free(L2_err);
+    }
+    MPI_Group_free(&mpi_group_world);
+    MPI_Group_free(&mpi_group_alive_world);
+    MPI_Group_free(&mpi_group_aux_alive_world);
+    if(m_rank != rank_active_aux_thread || !m_rank) MPI_Comm_free(&mpi_comm_alive_world);
+    MPI_Comm_free(&mpi_comm_aux_alive_world); 
 	    
     MPI_Finalize();
     return 0;
 }
-
-
-    /* usleep(m_rank*1e4); */
-    /* printf("\nrank - %d\n", m_rank); */
-    /* printf("grid_read    %p\n", m_grid.grid_read);    */
-    /* printf("top_read     %p\n", m_grid.top_read);     */
-    /* printf("bottom_read  %p\n", m_grid.bottom_read);  */
-    /* printf("left_read    %p\n", m_grid.left_read);    */
-    /* printf("right_read   %p\n", m_grid.right_read);   */
-    /* printf("grid_write   %p\n", m_grid.grid_write);   */
-    /* printf("top_write    %p\n", m_grid.top_write);    */
-    /* printf("bottom_write %p\n", m_grid.bottom_write); */
-    /* printf("left_write   %p\n", m_grid.left_write);   */
-    /* printf("right_write  %p\n", m_grid.right_write);  */
-    /* printf("topR         %p\n", m_grid.topR);         */
-    /* printf("bottomR      %p\n", m_grid.bottomR);      */
-    /* printf("leftR        %p\n", m_grid.leftR);        */
-    /* printf("rightR       %p\n", m_grid.rightR);  */    
-
