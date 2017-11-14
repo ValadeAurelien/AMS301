@@ -3,3 +3,5 @@
 \beamer@sectionintoc {3}{Code parall\IeC {\`e}le}{9}{0}{3}
 \beamer@subsectionintoc {3}{1}{Partage de la grille}{9}{0}{3}
 \beamer@subsectionintoc {3}{2}{Structure de la grille locale}{17}{0}{3}
+\beamer@subsectionintoc {3}{3}{Communications non bloquantes}{21}{0}{3}
+\beamer@sectionintoc {4}{Scripts}{23}{0}{4}
